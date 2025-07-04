@@ -17,10 +17,10 @@
       width:300px; font-family:sans-serif;
       box-shadow:0 0 5px rgba(0,0,0,0.3);
     }
-    #textGuide { margin-top:10px; color:green; font-weight:bold; }
     #controls input, #controls button {
       margin-bottom:6px; width:100%;
     }
+    #textGuide { margin-top:10px; color:green; font-weight:bold; }
   </style>
 </head>
 <body>
@@ -43,12 +43,11 @@
     <button onclick="goToPlusCode()">이동 및 안내</button>
 
     <strong>📶 내 위치 Plus Code 보기:</strong>
-    <button onclick="alert('내 위치 Plus Code: ' + encodePlus(userLocation))">
-      확인하기
-    </button>
+    <button onclick="alert('내 위치 Plus Code: ' + encodePlus(userLocation))">확인하기</button>
 
     <p id="textGuide"></p>
   </div>
+
   <div id="map"></div>
 
   <!-- Leaflet & Plugins JS -->
@@ -62,8 +61,8 @@
   <script>
     // 지도 초기화
     const map = L.map('map').setView([37.5665, 126.9780], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap contributors'
     }).addTo(map);
 
     // 전역 변수
@@ -80,7 +79,7 @@
     function speak(text) {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'ko-KR';
-      speechSynthesis.speak(u);
+      window.speechSynthesis.speak(u);
     }
 
     // 거리 포맷
@@ -90,7 +89,7 @@
         : Math.round(m) + '미터';
     }
 
-    // 한글 안내문 변환
+    // 안내문 번역
     function translateInstruction(instr) {
       const t = instr.text.toLowerCase();
       if (t.includes('left'))        return '좌회전입니다';
@@ -98,6 +97,16 @@
       if (t.includes('straight'))    return '직진하세요';
       if (t.includes('destination')) return '목적지에 도착했습니다';
       return instr.text;
+    }
+
+    // 모든 상호작용 잠금
+    function lockMap() {
+      map.dragging.disable();
+      map.touchZoom.disable();
+      map.doubleClickZoom.disable();
+      map.scrollWheelZoom.disable();
+      map.keyboard.disable();
+      if (map.tap) map.tap.disable();
     }
 
     // 내비게이션 경로 그리기
@@ -111,7 +120,9 @@
       document.getElementById('textGuide').innerText = '🕒 5초 후 안내가 시작됩니다';
 
       setTimeout(() => {
-        map.setView(userLocation, 16);
+        // 화면 고정 & 확대
+        map.setView(userLocation, 18);
+        lockMap();
 
         routingControl = L.Routing.control({
           waypoints: [userLocation, endMarker.getLatLng()],
@@ -142,7 +153,7 @@
       alert('지도에서 도착지를 클릭하세요.');
     }
 
-    // 지도 클릭 → 도착지 설정
+    // 지도 클릭 → 도착지
     map.on('click', e => {
       if (mode === 'end') {
         if (endMarker) map.removeLayer(endMarker);
@@ -153,7 +164,7 @@
       }
     });
 
-    // 주소/장소 검색
+    // 장소/주소 검색
     function searchPlace() {
       const q = document.getElementById('searchBox').value;
       if (!q) return;
@@ -168,7 +179,7 @@
       });
     }
 
-    // 위도·경도 입력
+    // 위도·경도 이동
     function goToCoordinates() {
       const lat = parseFloat(document.getElementById('latInput').value),
             lng = parseFloat(document.getElementById('lngInput').value);
@@ -181,7 +192,7 @@
       drawRoute();
     }
 
-    // Plus Code 입력
+    // Plus Code 이동
     function goToPlusCode() {
       const raw = document.getElementById('plusCodeInput').value.trim();
       if (!raw) return alert('플러스코드를 입력하세요.');
@@ -207,8 +218,6 @@
     // GPS 실시간 추적 & 경로 따라가기/이탈 감지
     navigator.geolocation.watchPosition(pos => {
       userLocation = L.latLng(pos.coords.latitude, pos.coords.longitude);
-
-      // 사용자 위치 표시(단 하나의 circle만)
       if (!userCircle) {
         userCircle = L.circle(userLocation, { radius: 5, color: 'blue' }).addTo(map);
       } else {
