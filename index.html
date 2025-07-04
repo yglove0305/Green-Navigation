@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>내 위치 기반 내비게이션</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  <style>
+    #map { height: 100vh; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 10px;
+      font-family: sans-serif;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <strong>📍 도착지 선택:</strong><br>
+    <button onclick="setMode('end')">도착지 선택</button><br><br>
+    <strong>🔍 장소 검색:</strong><br>
+    <input type="text" id="searchBox" placeholder="예: 서울역" />
+    <button onclick="searchPlace()">검색</button>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+  <script src="https://unpkg.com/leaflet-geometryutil"></script>
+
+  <script>
+    const map = L.map('map').setView([37.5665, 126.9780], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let endMarker = null;
+    let routingControl = null;
+    let currentRoute = null;
+    let userLocation = null;
+    let mode = 'end';
+
+    function speak(text) {
+      const msg = new SpeechSynthesisUtterance(text);
+      msg.lang = 'ko-KR';
+      window.speechSynthesis.speak(msg);
+    }
+
+    function drawRoute() {
+      if (!userLocation || !endMarker) return;
+
+      if (routingControl) map.removeControl(routingControl);
+
+      speak("5초 후 안내가 시작됩니다.");
+      setTimeout(() => {
+        map.setView(userLocation, 16);
+
+        routingControl = L.Routing.control({
+          waypoints: [userLocation, endMarker.getLatLng()],
+          routeWhileDragging: false,
+          show: false,
+          createMarker: () => null
+        }).addTo(map);
+
+        routingControl.on('routesfound', function(e) {
+          currentRoute = e.routes[0];
+          const steps = currentRoute.instructions || [];
+          if (steps.length > 0) {
+            let delay = 0;
+            steps.forEach((step, i) => {
+              setTimeout(() => {
+                speak(`다음 안내: ${step.text}`);
+              }, delay);
+              delay += 5000;
+            });
+          }
+        });
+      }, 5000);
+    }
+
+    function setMode(m) {
+      mode = m;
+      alert("도착지를 지도에서 클릭하세요.");
+    }
+
+    map.on('click', function(e) {
+      if (mode === 'end') {
+        if (endMarker) map.removeLayer(endMarker);
+        endMarker = L.marker(e.latlng).addTo(map).bindPopup("도착지").openPopup();
+        drawRoute();
+      }
+    });
+
+    function searchPlace() {
+      const query = document.getElementById('searchBox').value;
+      if (!query) return;
+
+      L.Control.Geocoder.nominatim().geocode(query, function(results) {
+        if (results.length === 0) {
+          alert("장소를 찾을 수 없습니다.");
+          return;
+        }
+        const result = results[0];
+        map.setView(result.center, 16);
+        if (endMarker) map.removeLayer(endMarker);
+        endMarker = L.marker(result.center).addTo(map).bindPopup(result.name || query).openPopup();
+        drawRoute();
+      });
+    }
+
+    // 실시간 위치 추적 및 경로 이탈 감지
+    navigator.geolocation.watchPosition(pos => {
+      userLocation = L.latLng(pos.coords.latitude, pos.coords.longitude);
+      L.circle(userLocation, { radius: 5, color: 'blue' }).addTo(map);
+
+      // 경로 이탈 감지
+      if (currentRoute) {
+        const snapped = L.GeometryUtil.closest(map, currentRoute.coordinates, userLocation);
+        const distance = userLocation.distanceTo(snapped);
+        if (distance > 50) {
+          console.log("경로 이탈 감지됨. 재탐색 중...");
+          drawRoute();
+        }
+      }
+    }, err => {
+      console.warn("위치 추적 실패:", err.message);
+    }, {
+      enableHighAccuracy: true,
+      maximumAge: 1000
+    });
+  </script>
+</body>
+</html>
