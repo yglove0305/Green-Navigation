@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>실시간 내비게이션 (주소 검색 지원)</title>
+  <title>실시간 내비게이션 최종판</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- Leaflet & Plugins CSS -->
@@ -30,7 +30,7 @@
     <button onclick="setMode('end')">지도 클릭으로 설정</button>
 
     <strong>🔍 주소/장소 검색:</strong>
-    <input type="text" id="searchBox" placeholder="주소나 장소 입력 (예: 전북특별자치도 남원시 내척동 덕원아파트)">
+    <input type="text" id="searchBox" placeholder="예: 전북특별자치도 남원시 내척동 덕원아파트">
     <button onclick="searchPlace()">검색 & 안내</button>
 
     <strong>📌 위도·경도 입력:</strong>
@@ -43,7 +43,9 @@
     <button onclick="goToPlusCode()">이동 및 안내</button>
 
     <strong>📶 내 위치 Plus Code 보기:</strong>
-    <button onclick="alert('내 위치 Plus Code: ' + encodePlus(userLocation))">확인하기</button>
+    <button onclick="alert('내 위치 Plus Code: ' + encodePlus(userLocation))">
+      확인하기
+    </button>
 
     <p id="textGuide"></p>
   </div>
@@ -59,162 +61,190 @@
 
   <script>
     // 지도 초기화
-    const map = L.map('map').setView([37.5665,126.9780],13);
+    const map = L.map('map').setView([37.5665, 126.9780], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution:'© OpenStreetMap contributors'
+      attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
     // 전역 변수
-    let endMarker=null, routingControl=null, currentRoute=null,
-        userLocation=null, mode='end', routeLine=null, spokenSteps=new Set();
+    let endMarker = null,
+        routingControl = null,
+        currentRoute = null,
+        userLocation = null,
+        userCircle = null,
+        mode = 'end',
+        routeLine = null,
+        spokenSteps = new Set();
 
     // 음성 안내
-    function speak(text){
-      const u=new SpeechSynthesisUtterance(text);
-      u.lang='ko-KR';
+    function speak(text) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ko-KR';
       speechSynthesis.speak(u);
     }
 
-    function formatDistance(m){
-      return m>=1000
-        ? (m/1000).toFixed(1)+'킬로미터'
-        : Math.round(m)+'미터';
+    // 거리 포맷
+    function formatDistance(m) {
+      return m >= 1000
+        ? (m/1000).toFixed(1) + '킬로미터'
+        : Math.round(m) + '미터';
     }
 
-    function translateInstruction(instr){
-      const t=instr.text.toLowerCase();
-      if(t.includes('left'))        return '좌회전입니다';
-      if(t.includes('right'))       return '우회전입니다';
-      if(t.includes('straight'))    return '직진하세요';
-      if(t.includes('destination')) return '목적지에 도착했습니다';
+    // 한글 안내문 변환
+    function translateInstruction(instr) {
+      const t = instr.text.toLowerCase();
+      if (t.includes('left'))        return '좌회전입니다';
+      if (t.includes('right'))       return '우회전입니다';
+      if (t.includes('straight'))    return '직진하세요';
+      if (t.includes('destination')) return '목적지에 도착했습니다';
       return instr.text;
     }
 
-    // 내비게이션 시작
-    function drawRoute(){
-      if(!userLocation||!endMarker) return;
-      if(routingControl) map.removeControl(routingControl);
-      if(routeLine) map.removeLayer(routeLine);
+    // 내비게이션 경로 그리기
+    function drawRoute() {
+      if (!userLocation || !endMarker) return;
+      if (routingControl) map.removeControl(routingControl);
+      if (routeLine) map.removeLayer(routeLine);
       spokenSteps.clear();
 
       speak('5초 후 안내가 시작됩니다.');
-      document.getElementById('textGuide').innerText='🕒 5초 후 안내가 시작됩니다';
+      document.getElementById('textGuide').innerText = '🕒 5초 후 안내가 시작됩니다';
 
-      setTimeout(()=>{
-        map.setView(userLocation,16);
-        routingControl=L.Routing.control({
-          waypoints:[userLocation,endMarker.getLatLng()],
-          routeWhileDragging:false,show:false,createMarker:()=>null
+      setTimeout(() => {
+        map.setView(userLocation, 16);
+
+        routingControl = L.Routing.control({
+          waypoints: [userLocation, endMarker.getLatLng()],
+          routeWhileDragging: false,
+          show: false,
+          createMarker: () => null
         })
-        .on('routesfound',e=>{
-          currentRoute=e.routes[0];
-          routeLine=L.polyline(currentRoute.coordinates,{color:'red'}).addTo(map);
-          const first=currentRoute.instructions[0];
-          if(first){
-            const msg=`안내를 시작합니다. ${formatDistance(first.distance)} 앞에서 ${translateInstruction(first)}`;
+        .on('routesfound', e => {
+          currentRoute = e.routes[0];
+          routeLine = L.polyline(currentRoute.coordinates, { color: 'red' }).addTo(map);
+
+          // 첫 안내
+          const first = currentRoute.instructions[0];
+          if (first) {
+            const msg = `안내를 시작합니다. ${formatDistance(first.distance)} 앞에서 ${translateInstruction(first)}`;
             speak(msg);
-            document.getElementById('textGuide').innerText='📢 '+msg;
+            document.getElementById('textGuide').innerText = '📢 ' + msg;
             spokenSteps.add(first.index);
           }
         })
         .addTo(map);
-      },5000);
+      }, 5000);
     }
 
-    // 모드 설정 (클릭으로 도착지)
-    function setMode(m){
-      mode=m;
+    // 모드 설정
+    function setMode(m) {
+      mode = m;
       alert('지도에서 도착지를 클릭하세요.');
     }
-    map.on('click',e=>{
-      if(mode==='end'){
-        if(endMarker) map.removeLayer(endMarker);
-        endMarker=L.marker(e.latlng).addTo(map).bindPopup('도착지').openPopup();
-        document.getElementById('textGuide').innerText=
+
+    // 지도 클릭 → 도착지 설정
+    map.on('click', e => {
+      if (mode === 'end') {
+        if (endMarker) map.removeLayer(endMarker);
+        endMarker = L.marker(e.latlng).addTo(map).bindPopup('도착지').openPopup();
+        document.getElementById('textGuide').innerText =
           `📍 도착지: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
         drawRoute();
       }
     });
 
-    // 주소/장소 검색 (한글 주소 포함)
-    function searchPlace(){
-      const q=document.getElementById('searchBox').value;
-      if(!q) return;
-      L.Control.Geocoder.nominatim().geocode(q,results=>{
-        if(!results.length) return alert('검색 결과가 없습니다.');
-        const c=results[0].center;
-        map.setView(c,16);
-        if(endMarker) map.removeLayer(endMarker);
-        endMarker=L.marker(c).addTo(map).bindPopup(results[0].name||q).openPopup();
-        document.getElementById('textGuide').innerText=`📍 "${q}" 위치로 안내`;
+    // 주소/장소 검색
+    function searchPlace() {
+      const q = document.getElementById('searchBox').value;
+      if (!q) return;
+      L.Control.Geocoder.nominatim().geocode(q, res => {
+        if (!res.length) return alert('검색 결과가 없습니다.');
+        const c = res[0].center;
+        map.setView(c, 16);
+        if (endMarker) map.removeLayer(endMarker);
+        endMarker = L.marker(c).addTo(map).bindPopup(res[0].name || q).openPopup();
+        document.getElementById('textGuide').innerText = `📍 "${q}" 위치로 안내`;
         drawRoute();
       });
     }
 
-    // 위도·경도 이동
-    function goToCoordinates(){
-      const lat=parseFloat(document.getElementById('latInput').value),
-            lng=parseFloat(document.getElementById('lngInput').value);
-      if(isNaN(lat)||isNaN(lng)) return alert('올바른 좌표를 입력하세요.');
-      const c=L.latLng(lat,lng);
-      map.setView(c,16);
-      if(endMarker) map.removeLayer(endMarker);
-      endMarker=L.marker(c).addTo(map).bindPopup('도착지').openPopup();
-      document.getElementById('textGuide').innerText=`📍 ${lat}, ${lng} 위치로 안내`;
+    // 위도·경도 입력
+    function goToCoordinates() {
+      const lat = parseFloat(document.getElementById('latInput').value),
+            lng = parseFloat(document.getElementById('lngInput').value);
+      if (isNaN(lat) || isNaN(lng)) return alert('올바른 좌표를 입력하세요.');
+      const c = L.latLng(lat, lng);
+      map.setView(c, 16);
+      if (endMarker) map.removeLayer(endMarker);
+      endMarker = L.marker(c).addTo(map).bindPopup('도착지').openPopup();
+      document.getElementById('textGuide').innerText = `📍 ${lat}, ${lng} 위치로 안내`;
       drawRoute();
     }
 
-    // Plus Code 이동
-    function goToPlusCode(){
-      const raw=document.getElementById('plusCodeInput').value.trim();
-      if(!raw) return alert('플러스코드를 입력하세요.');
-      const plus=raw.split(/\s+/)[0];
-      if(!OpenLocationCode.isValidCode(plus))
+    // Plus Code 입력
+    function goToPlusCode() {
+      const raw = document.getElementById('plusCodeInput').value.trim();
+      if (!raw) return alert('플러스코드를 입력하세요.');
+      const plus = raw.split(/\s+/)[0];
+      if (!OpenLocationCode.isValidCode(plus))
         return alert('유효한 플러스코드를 입력하세요.');
-      const dec=OpenLocationCode.decode(plus);
-      const c=L.latLng(dec.latitudeCenter,dec.longitudeCenter);
-      map.setView(c,16);
-      if(endMarker) map.removeLayer(endMarker);
-      endMarker=L.marker(c).addTo(map).bindPopup(plus).openPopup();
-      document.getElementById('textGuide').innerText=`📍 ${plus} 위치로 안내`;
+      const dec = OpenLocationCode.decode(plus);
+      const c = L.latLng(dec.latitudeCenter, dec.longitudeCenter);
+      map.setView(c, 16);
+      if (endMarker) map.removeLayer(endMarker);
+      endMarker = L.marker(c).addTo(map).bindPopup(plus).openPopup();
+      document.getElementById('textGuide').innerText = `📍 ${plus} 위치로 안내`;
       drawRoute();
     }
 
-    // 내 위치 → Plus Code
-    function encodePlus(latlng){
+    // 내 위치 → Plus Code 인코딩
+    function encodePlus(latlng) {
       return latlng
-        ? OpenLocationCode.encode(latlng.lat,latlng.lng)
+        ? OpenLocationCode.encode(latlng.lat, latlng.lng)
         : '위치 없음';
     }
 
     // GPS 실시간 추적 & 경로 따라가기/이탈 감지
-    navigator.geolocation.watchPosition(pos=>{
-      userLocation=L.latLng(pos.coords.latitude,pos.coords.longitude);
-      L.circle(userLocation,{radius:5,color:'blue'}).addTo(map);
+    navigator.geolocation.watchPosition(pos => {
+      userLocation = L.latLng(pos.coords.latitude, pos.coords.longitude);
 
-      if(currentRoute&&routeLine){
-        const sn=L.GeometryUtil.closest(map,currentRoute.coordinates,userLocation);
-        const dist=userLocation.distanceTo(sn);
-        if(dist>50){
-          drawRoute(); return;
+      // 사용자 위치 표시(단 하나의 circle만)
+      if (!userCircle) {
+        userCircle = L.circle(userLocation, { radius: 5, color: 'blue' }).addTo(map);
+      } else {
+        userCircle.setLatLng(userLocation);
+      }
+
+      if (currentRoute && routeLine) {
+        const sn = L.GeometryUtil.closest(map, currentRoute.coordinates, userLocation);
+        const dist = userLocation.distanceTo(sn);
+        if (dist > 50) {
+          console.log('경로 이탈, 재탐색');
+          drawRoute();
+          return;
         }
-        const idx=currentRoute.coordinates.findIndex(c=>c.lat===sn.lat&&c.lng===sn.lng);
-        if(idx>0) routeLine.setLatLngs(currentRoute.coordinates.slice(idx));
-        const next=currentRoute.instructions.find(s=>!spokenSteps.has(s.index));
-        if(next){
-          const dToNext=userLocation.distanceTo(next.latLng);
-          if(dToNext<=next.distance){
-            const msg=`${formatDistance(next.distance)} 앞에서 ${translateInstruction(next)}`;
+        const idx = currentRoute.coordinates.findIndex(
+          c => c.lat === sn.lat && c.lng === sn.lng
+        );
+        if (idx > 0) {
+          routeLine.setLatLngs(currentRoute.coordinates.slice(idx));
+        }
+        const next = currentRoute.instructions.find(s => !spokenSteps.has(s.index));
+        if (next) {
+          const dToNext = userLocation.distanceTo(next.latLng);
+          if (dToNext <= next.distance) {
+            const msg = `${formatDistance(next.distance)} 앞에서 ${translateInstruction(next)}`;
             speak(msg);
-            document.getElementById('textGuide').innerText='📢 '+msg;
+            document.getElementById('textGuide').innerText = '📢 ' + msg;
             spokenSteps.add(next.index);
           }
         }
       }
-    },err=>{
-      console.warn('GPS 오류:',err.message);
-    },{
-      enableHighAccuracy:true, maximumAge:1000
+    }, err => {
+      console.warn('GPS 오류:', err.message);
+    }, {
+      enableHighAccuracy: true,
+      maximumAge: 1000
     });
   </script>
 </body>
