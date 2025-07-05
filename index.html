@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>실시간 내비게이션 최종판</title>
+  <title>실시간 내비게이션 (자동 센터링)</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- Leaflet & Plugins CSS -->
@@ -26,11 +26,11 @@
 <body>
 
   <div id="controls">
-    <strong>📍 도착지 설정:</strong><br>
+    <strong>📍 도착지 설정:</strong>
     <button onclick="setMode('end')">지도 클릭으로 설정</button>
 
     <strong>🔍 주소/장소 검색:</strong>
-    <input type="text" id="searchBox" placeholder="예: 전북특별자치도 남원시 내척동 덕원아파트">
+    <input id="searchBox" placeholder="예: 전북특별자치도 남원시 내척동 덕원아파트">
     <button onclick="searchPlace()">검색 & 안내</button>
 
     <strong>📌 위도·경도 입력:</strong>
@@ -47,7 +47,6 @@
 
     <p id="textGuide"></p>
   </div>
-
   <div id="map"></div>
 
   <!-- Leaflet & Plugins JS -->
@@ -61,7 +60,7 @@
   <script>
     // 지도 초기화
     const map = L.map('map').setView([37.5665, 126.9780], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:'© OpenStreetMap contributors'
     }).addTo(map);
 
@@ -73,7 +72,9 @@
         userCircle = null,
         mode = 'end',
         routeLine = null,
-        spokenSteps = new Set();
+        spokenSteps = new Set(),
+        autoCenter = false;      // 내비게이션 시작 후 자동 센터링 활성화
+    const NAV_ZOOM = 18;        // 내비게이션 시 고정할 줌 레벨
 
     // 음성 안내
     function speak(text) {
@@ -89,7 +90,7 @@
         : Math.round(m) + '미터';
     }
 
-    // 안내문 번역
+    // 한글 안내문 변환
     function translateInstruction(instr) {
       const t = instr.text.toLowerCase();
       if (t.includes('left'))        return '좌회전입니다';
@@ -99,40 +100,31 @@
       return instr.text;
     }
 
-    // 모든 상호작용 잠금
-    function lockMap() {
-      map.dragging.disable();
-      map.touchZoom.disable();
-      map.doubleClickZoom.disable();
-      map.scrollWheelZoom.disable();
-      map.keyboard.disable();
-      if (map.tap) map.tap.disable();
-    }
-
-    // 내비게이션 경로 그리기
+    // 내비게이션 경로 그리기 & 5초 후 시작
     function drawRoute() {
       if (!userLocation || !endMarker) return;
       if (routingControl) map.removeControl(routingControl);
       if (routeLine) map.removeLayer(routeLine);
       spokenSteps.clear();
+      autoCenter = false;
 
       speak('5초 후 안내가 시작됩니다.');
-      document.getElementById('textGuide').innerText = '🕒 5초 후 안내가 시작됩니다';
+      document.getElementById('textGuide').innerText = '🕒 5초 후 안내 시작';
 
       setTimeout(() => {
-        // 화면 고정 & 확대
-        map.setView(userLocation, 18);
-        lockMap();
+        // 내비게이션 시작 시 줌 고정 및 자동 센터링 활성화
+        autoCenter = true;
+        map.setView(userLocation, NAV_ZOOM);
 
         routingControl = L.Routing.control({
-          waypoints: [userLocation, endMarker.getLatLng()],
-          routeWhileDragging: false,
-          show: false,
-          createMarker: () => null
+          waypoints:[userLocation, endMarker.getLatLng()],
+          routeWhileDragging:false,
+          show:false,
+          createMarker:()=>null
         })
         .on('routesfound', e => {
           currentRoute = e.routes[0];
-          routeLine = L.polyline(currentRoute.coordinates, { color: 'red' }).addTo(map);
+          routeLine = L.polyline(currentRoute.coordinates, {color:'red'}).addTo(map);
 
           // 첫 안내
           const first = currentRoute.instructions[0];
@@ -147,13 +139,13 @@
       }, 5000);
     }
 
-    // 모드 설정
+    // 모드 설정 (클릭으로 도착지)
     function setMode(m) {
       mode = m;
       alert('지도에서 도착지를 클릭하세요.');
     }
 
-    // 지도 클릭 → 도착지
+    // 지도 클릭 → 도착지 설정
     map.on('click', e => {
       if (mode === 'end') {
         if (endMarker) map.removeLayer(endMarker);
@@ -164,7 +156,7 @@
       }
     });
 
-    // 장소/주소 검색
+    // 주소/장소 검색
     function searchPlace() {
       const q = document.getElementById('searchBox').value;
       if (!q) return;
@@ -173,7 +165,7 @@
         const c = res[0].center;
         map.setView(c, 16);
         if (endMarker) map.removeLayer(endMarker);
-        endMarker = L.marker(c).addTo(map).bindPopup(res[0].name || q).openPopup();
+        endMarker = L.marker(c).addTo(map).bindPopup(res[0].name||q).openPopup();
         document.getElementById('textGuide').innerText = `📍 "${q}" 위치로 안내`;
         drawRoute();
       });
@@ -215,15 +207,23 @@
         : '위치 없음';
     }
 
-    // GPS 실시간 추적 & 경로 따라가기/이탈 감지
+    // GPS 실시간 추적 & 경로 따라가기/이탈 감지 + 자동 센터링
     navigator.geolocation.watchPosition(pos => {
       userLocation = L.latLng(pos.coords.latitude, pos.coords.longitude);
+
+      // 사용자 위치 원(circle) 갱신
       if (!userCircle) {
-        userCircle = L.circle(userLocation, { radius: 5, color: 'blue' }).addTo(map);
+        userCircle = L.circle(userLocation, {radius:5, color:'blue'}).addTo(map);
       } else {
         userCircle.setLatLng(userLocation);
       }
 
+      // 자동 센터링 활성화 시 항상 화면 중앙 고정
+      if (autoCenter) {
+        map.setView(userLocation, NAV_ZOOM);
+      }
+
+      // 경로 따라가기 & 이탈 감지
       if (currentRoute && routeLine) {
         const sn = L.GeometryUtil.closest(map, currentRoute.coordinates, userLocation);
         const dist = userLocation.distanceTo(sn);
